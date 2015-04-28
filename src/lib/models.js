@@ -34,12 +34,12 @@ var create = module.exports = function(sql, Sequelize) {
     time: {type: Sequelize.INTEGER}, // ms
   }, {timestamps: false, underscored: true});
 
-  Crawl.hasOne(Summary);
-  Crawl.hasMany(Edge);
-  Crawl.hasMany(Peer);
+  Crawl.hasOne(Summary, {onDelete: 'cascade'});
+  Crawl.hasMany(Edge, {onDelete: 'cascade'});
+  Crawl.hasMany(Peer, {onDelete: 'cascade'});
 
-  Peer.hasMany(Edge, {foreignKey: 'from'});
-  Peer.hasMany(Edge, {foreignKey: 'to'});
+  Peer.hasMany(Edge, {foreignKey: 'from', onDelete: 'cascade'});
+  Peer.hasMany(Edge, {foreignKey: 'to', onDelete: 'cascade'});
 
   return {
     Crawl: Crawl,

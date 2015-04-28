@@ -17,9 +17,7 @@ def main(url, crawl_id):
       G.add_node(p.id)
 
   for e in edges:
-    from_ = getattr(e, 'from')
-    to_ = e.to
-    G.add_edge(from_, to_)
+    G.add_edge(getattr(e, 'from'), e.to)
 
   print('reachable nodes in graph', len(G))
   print('graph edges (directed)', G.size())

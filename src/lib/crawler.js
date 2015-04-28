@@ -114,7 +114,7 @@ Crawler.prototype.saveData = function(pk, data, defaults) {
 
 /**
 * @param {String} ip - to crawl
-* @param {Number} hops from initial entryPoint
+* @param {Number} hops - from initial entryPoint
 */
 Crawler.prototype.crawl = function(ip, hops) {
   var self = this;
@@ -200,3 +200,4 @@ Crawler.prototype.crawlSingle = function(ip, onResponse) {
 }
 
 exports.Crawler = Crawler;
+exports.normalizePubKey = normalizePubKey;

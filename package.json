@@ -1,0 +1,25 @@
+{
+  "name": "ripple-pub-crawl",
+  "version": "0.0.1",
+  "description": "Crawls pub(lic) ripple network",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm test"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bluebird": "^2.9.24",
+    "extend": "^2.0.1",
+    "geoip-lite": "^1.1.6",
+    "lodash": "^3.7.0",
+    "mocha": "^2.2.4",
+    "pg": "^4.3.0",
+    "pg-hstore": "^2.3.2",
+    "rconsole": "^0.2.0",
+    "request": "^2.55.0",
+    "ripple-lib": "^0.12.3",
+    "sequelize": "^2.0.6",
+    "sqlite3": "^3.0.5"
+  }
+}

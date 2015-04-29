@@ -20,11 +20,23 @@ var create = module.exports = function(sql, Sequelize) {
     version: {type: Sequelize.STRING, allowNull: true},
 
     ip: {type: Sequelize.STRING, validate: {isIPv4: true}, allowNull: true},
+    port: { type: Sequelize.INTEGER },
     city: {type: Sequelize.STRING, allowNull: true},
     country: {type: Sequelize.STRING, allowNull: true},
     region: {type: Sequelize.STRING, allowNull: true}
 
-  }, {timestamps: false, underscored: true});
+  }, {
+    timestamps: false,
+    underscored: true,
+
+    // This is accessed via `.ip_and_port` rather than `.ip_and_port()`
+    getterMethods: {
+      ip_and_port : function() {
+        return this.ip + ':' + this.port;
+      }
+    },
+
+  });
 
   var Edge = sql.define('edge', {}, {timestamps: false, underscored: true});
 

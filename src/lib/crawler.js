@@ -34,11 +34,14 @@ function abortIfNot(expression, message) {
   }
 }
 
+function withDefaultPort(domainOrIp) {
+  return domainOrIp.indexOf(':') !== -1 ? domainOrIp :
+                                          domainOrIp + ':51235';
+
+}
+
 function crawlUrl(domainOrIp) {
-  var domainOrIpAndPort =
-      domainOrIp.indexOf(':') !== -1 ? domainOrIp :
-                                       domainOrIp + ':51235';
-  return 'https://' + domainOrIpAndPort + '/crawl';
+  return 'https://' + withDefaultPort(domainOrIp) + '/crawl';
 }
 
 function normalizePubKey(base64) {
@@ -65,14 +68,13 @@ function normalise(resp) {
                   port = split[1];
 
       copy.ip = splitIp;
-
-      if (port) {
-        copy.port = port;
-      }
+      copy.port = port ? port : 51235;
 
       if (p.type === 'peer') {
         copy.type = port ? 'out' : 'in';
       }
+
+      copy.ip_and_port = copy.ip + ':' + copy.port;
     }
   });
   resp.overlay.active = active;
@@ -95,7 +97,7 @@ function Crawler(maxRequests, logger) {
 util.inherits(Crawler, EventEmitter);
 
 Crawler.prototype.enter = function(ip) {
-  this.crawl(ip, 0);
+  this.crawl(withDefaultPort(ip), 0);
 };
 
 Crawler.prototype.saveData = function(pk, data, defaults) {
@@ -113,27 +115,27 @@ Crawler.prototype.saveData = function(pk, data, defaults) {
 };
 
 /**
-* @param {String} ip - to crawl
+* @param {String} ipp - (including port) to crawl
 * @param {Number} hops - from initial entryPoint
 */
-Crawler.prototype.crawl = function(ip, hops) {
+Crawler.prototype.crawl = function(ipp, hops) {
   var self = this;
-  self.logger.log('entering ' + ip);
-  self.queued[ip] = request_status.REQUESTING;
+  self.logger.log('entering ' + ipp);
+  self.queued[ipp] = request_status.REQUESTING;
 
-  self.crawlOne(ip, function(err, resp) {
-    self.dequeue(ip);
+  self.crawlOne(ipp, function(err, resp) {
+    self.dequeue(ipp);
 
     if (err) {
-      self.logger.error(ip + ' has err ', err);
-      self.errors[ip] = err.code;
+      self.logger.error(ipp + ' has err ', err);
+      self.errors[ipp] = err.code;
     } else {
       resp = normalise(resp);
-      self.responses[ip] = resp;
+      self.responses[ipp] = resp;
       resp.overlay.active.forEach(function(entry) {
         self.saveData(entry.public_key, entry, true);
         self.saveData(entry.public_key, {hops: hops}, true);
-        self.enqueueIfNeeded(entry.ip);
+        self.enqueueIfNeeded(entry.ip_and_port);
       });
     }
 
@@ -144,12 +146,12 @@ Crawler.prototype.crawl = function(ip, hops) {
   });
 };
 
-Crawler.prototype.enqueueIfNeeded = function(ip) {
-  if (ip) {
-    if ((this.responses[ip] === undefined) &&
-        (this.queued[ip] === undefined) &&
-        (this.errors[ip] === undefined)) {
-      this.enqueue(ip);
+Crawler.prototype.enqueueIfNeeded = function(ipp) {
+  if (ipp) {
+    if ((this.responses[ipp] === undefined) &&
+        (this.queued[ipp] === undefined) &&
+        (this.errors[ipp] === undefined)) {
+      this.enqueue(ipp);
     }
   }
 }

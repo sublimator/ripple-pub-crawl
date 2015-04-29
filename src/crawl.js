@@ -20,7 +20,8 @@ function isSet(env) { return env !== undefined; }
 
 var config = {
   DROP_TABLES :  isSet(process.env.DROP_TABLES),
-  LOG_SQL : isSet(process.env.LOG_SQL)
+  LOG_SQL : isSet(process.env.LOG_SQL),
+  LOG_CRAWL: isSet(process.env.LOG_CRAWL),
 }
 
 /* --------------------------------- HELPERS -------------------------------- */
@@ -47,7 +48,7 @@ var saveDB = exports.saveDB = function saveDB(crawler, entryIp, dbUrl, onDone) {
     var peers = _.map(crawler.byPub, function(data, public_key) {
       var geo = data.ip ? geoip.lookup(data.ip) : {};
       var reachable = (data.ip !== undefined &&
-                       crawler.responses[data.ip] !== undefined);
+                       crawler.responses[data.ip_and_port] !== undefined);
       return {
          crawl_id: crawl.id,
          city: geo.city,
@@ -57,6 +58,7 @@ var saveDB = exports.saveDB = function saveDB(crawler, entryIp, dbUrl, onDone) {
          hops_from_entry: data.hops,
          version: data.version,
          ip: data.ip,
+         port: data.port,
          public_key: public_key};
     });
     return models.Peer.bulkCreate(peers, {returning: true,
@@ -71,21 +73,20 @@ var saveDB = exports.saveDB = function saveDB(crawler, entryIp, dbUrl, onDone) {
       if (!peerModel.reachable) {
         return;
       };
-
       // We can some times see sockets going from `from`, to `to` more than
       // once. We need to dedupe these.
-      crawler.responses[peerModel.ip].overlay.active.forEach(function(active) {
+      crawler.responses[peerModel.ip_and_port].overlay.active
+                                                .forEach(function(active) {
         if (indexed[active.public_key]) {
-          var other = indexed[active.public_key];
           var data = crawler.byPub[active.public_key];
-          if (data.type ) {};
+          if (data.type === 'peer') {
+            // TODO:  We'd just be guessing the direction of the edges
+            return;
+          };
 
+          var other = indexed[active.public_key];
           var from_ = data.type === 'in' ? other : peerModel;
           var to_ = data.type === 'out' ? other : peerModel;
-
-          if (from_ === to_) {
-            return
-          };
 
           var id = from_.id + ':' + to_.id;
           if (!edgeMap[id]) {
@@ -123,7 +124,7 @@ function main(entryIp, dbUrl) {
   }
 
   var noopLogger = {log: _.noop, error: _.noop};
-  var crawler = new Crawler(100, noopLogger);
+  var crawler = new Crawler(100, config.LOG_CRAWL ? undefined : noopLogger);
 
   crawler
     .on('request', function() {

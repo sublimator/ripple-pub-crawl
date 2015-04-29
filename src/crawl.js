@@ -16,13 +16,11 @@ var Crawler = require('./lib/crawler').Crawler;
 
 /* --------------------------------- CONSTS --------------------------------- */
 
-function isSet(env) { return env !== undefined; }
+var config = {};
 
-var config = {
-  DROP_TABLES :  isSet(process.env.DROP_TABLES),
-  LOG_SQL : isSet(process.env.LOG_SQL),
-  LOG_CRAWL: isSet(process.env.LOG_CRAWL),
-}
+['DROP_TABLES', 'LOG_SQL', 'LOG_CRAWL'].forEach(function(k) {
+  config[k] = process.env[k] !== undefined;
+});
 
 /* --------------------------------- HELPERS -------------------------------- */
 
@@ -30,7 +28,7 @@ function prettyJSON(o) {
   return JSON.stringify(o, undefined, 2);
 }
 
-var saveDB = exports.saveDB = function saveDB(rawCrawl, entryIp, dbUrl, onDone) {
+var saveDB = exports.saveDB = function saveDB(crawlJson, entryIp, dbUrl, onDone) {
   var sql = new Sequelize(dbUrl, {logging: config.LOG_SQL});
   var models = modelsFactory(sql, Sequelize);
   // our context var
@@ -45,10 +43,11 @@ var saveDB = exports.saveDB = function saveDB(rawCrawl, entryIp, dbUrl, onDone) 
   })
   .then(function(crawl) {
     $.crawl = crawl;
-    var peers = _.map(rawCrawl.peersData, function(data, public_key) {
+
+    var peers = _.map(crawlJson.peersData, function(data, public_key) {
       var geo = data.ip ? geoip.lookup(data.ip) : {};
       var reachable = (data.ip !== undefined &&
-                       rawCrawl.responses[data.ip_and_port] !== undefined);
+                       crawlJson.responses[data.ip_and_port] !== undefined);
       return {
          crawl_id: crawl.id,
          city: geo.city,
@@ -65,74 +64,73 @@ var saveDB = exports.saveDB = function saveDB(rawCrawl, entryIp, dbUrl, onDone) 
                                           transaction: $.tx.transaction});
   })
   .then(function(peers) {
+    function eachReachablePeersActives(func) {
+      peers.forEach(function(peerModel) {
+        if (!peerModel.reachable) {
+          // We don't have any data from them, so ... moving on.
+          return;
+        };
+        // We can some times see sockets going from `from`, to `to` more than
+        // once. We need to dedupe these.
+        crawlJson.responses[peerModel.ip_and_port].overlay.active
+                                              .forEach(function(active) {
+            func(peerModel, active);
+        });
+      });
+    }
+
     $.peers = peers;
     var indexed = _.indexBy(peers, 'public_key');
     var edgeMap = {};
 
-    peers.forEach(function(peerModel) {
-      if (!peerModel.reachable) {
-        // We don't have any data from them, so ... moving on.
-        return;
-      };
-      // We can some times see sockets going from `from`, to `to` more than
-      // once. We need to dedupe these.
-      rawCrawl.responses[peerModel.ip_and_port].overlay.active
-                                            .forEach(function(active) {
-        if (indexed[active.public_key]) {
-          var edge_type = active.type;
-          var directed = true;
+    // We can some times see sockets going from `from`, to `to` more than once.
+    // We need to dedupe these.
+    eachReachablePeersActives(function(peerModel, active) {
+      if (indexed[active.public_key]) {
+        var edge_type = active.type;
+        var directed = true;
 
-          if (edge_type === 'peer' || edge_type === undefined) {
-            // We may know the link from another direction, so sit tight. We
-            // need to go through all the peers, and all their `actives` first
-            // until below we can check if the edge is already there.
-            return;
-          };
+        if (edge_type === 'peer' || edge_type === undefined) {
+          // We may know the link from another direction, so sit tight. We need
+          // to go through all the peers, and all their `actives` first until
+          // below we can check if the edge is already there.
+          return;
+        };
+        var other = indexed[active.public_key];
+        var from_ = edge_type === 'in' ? other : peerModel;
+        var to_ = edge_type === 'out' ? other : peerModel;
 
-          var other = indexed[active.public_key];
-          var from_ = edge_type === 'in' ? other : peerModel;
-          var to_ = edge_type === 'out' ? other : peerModel;
-
-          var id = from_.id + ':' + to_.id;
-          if (!edgeMap[id]) {
-            var edge = {from: from_.id,
-                        directed: directed,
-                        to: to_.id,
-                        crawl_id: $.crawl.id};
-            edgeMap[id] = edge;
-          }
+        var id = from_.id + ':' + to_.id;
+        if (!edgeMap[id]) {
+          var edge = {from: from_.id,
+                      directed: directed,
+                      to: to_.id,
+                      crawl_id: $.crawl.id};
+          edgeMap[id] = edge;
         }
-      });
+      }
     });
+    eachReachablePeersActives(function(peerModel, active) {
+      if (indexed[active.public_key]) {
+        var other = indexed[active.public_key];
+        var edge_type = active.type;
 
-    //
-    peers.forEach(function(peerModel) {
-      if (!peerModel.reachable) {
-        return;
-      };
+        if (edge_type === 'peer' || edge_type === undefined) {
+          var in_key = other.id +':' + peerModel.id;
+          var out_key = peerModel.id +':' + other.id;
 
-      rawCrawl.responses[peerModel.ip_and_port].overlay.active
-                                            .forEach(function(active) {
-        if (indexed[active.public_key]) {
-          var other = indexed[active.public_key];
-          var edge_type = active.type;
-          if (edge_type === 'peer' || edge_type === undefined) {
-            // Create an undirected edge.
-            // from and to are meaningless when directed == false
-
-            // We may already have the link
-            var in_key = other.id +':' + peerModel.id;
-            var out_key = peerModel.id +':' + other.id;
-            if (!edgeMap[in_key] && !edgeMap[out_key]) {
-              var edge = {from: peerModel.id,
-                          directed: false,
-                          to: other.id,
-                          crawl_id: $.crawl.id};
-              edgeMap[out_key] = edge;
-            };
+          // We may already have the link
+          if (!edgeMap[in_key] && !edgeMap[out_key]) {
+            // Create an undirected edge. `from` and `to` are meaningless when
+            // directed == false.
+            var edge = {from: peerModel.id,
+                        directed: false,
+                        to: other.id,
+                        crawl_id: $.crawl.id};
+            edgeMap[out_key] = edge;
           };
-        }
-      });
+        };
+      }
     });
 
     return models.Edge.bulkCreate(_.values(edgeMap), $.tx);
@@ -170,14 +168,15 @@ function main(entryIp, dbUrl) {
       process.stdout.write('.');
     })
     .once('done', function() { console.log(); })
-    .once('done', function(rawCrawl) {
+    .once('done', function(crawlJson) {
       // Save results to the db
-      saveDB(rawCrawl, entryIp, dbUrl, function(err, crawl_id, peers, edges) {
+      saveDB(crawlJson, entryIp, dbUrl, function(err, crawl_id, peers, edges) {
         if (err) {
           console.error(err);
           process.exit(1);
         } else {
-          fs.writeFileSync('crawl.json', prettyJSON(rawCrawl.responses));
+          fs.writeFileSync('raw-crawl-' + crawl_id +'.json', 
+                           JSON.stringify(crawler.rawResponses));
           console.log('Queried: crawl_id/num_peers/num_edges',
                                 crawl_id, peers, edges);
           process.exit(0);

@@ -17,7 +17,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 var DEBUG = false;
 
-var request_status = {
+var REQUEST_STATUS = {
   QUEUED: 1,
   REQUESTING: 2
 };
@@ -77,7 +77,6 @@ function normalise(resp) {
       if (p.type === 'peer') {
         copy.type = port ? 'out' : 'in';
       }
-
       copy.ip_and_port = copy.ip + ':' + copy.port;
     }
   });
@@ -90,12 +89,13 @@ function normalise(resp) {
 function Crawler(maxRequests, logger) {
   EventEmitter.call(this);
   this.maxRequests = maxRequests ? maxRequests : 30;
-  this.currentRequests = 0;
-  this.responses = {};
-  this.queued = {};
-  this.errors = {};
+  this.currentRequests = 0; // active requests
+  this.responses = {}; // {$ip_and_port : $normalised_response}
+  this.rawResponses = {}; // {$ip_and_port : defensiveCopy($raw_responses)}
+  this.queued = {}; // {$ip_and_port : REQUEST_STATUS.*}
+  this.errors = {}; // {$ip_and_port : $error_code_int}
+  this.peersData = {}; // {b58_normed(pubKey) : {...}}
   this.logger = logger || console;
-  this.peersData = {};
 }
 
 util.inherits(Crawler, EventEmitter);
@@ -104,12 +104,26 @@ Crawler.prototype.enter = function(ip) {
   this.crawl(withDefaultPort(ip), 0);
 };
 
+/**
+*
+* Peers will reveal varying degrees of information about connected peers .Save a
+* given views's data into a merged dict. We take the first view's version we see
+* for any key in the dict
+*
+* TODO: track and warn when peers report conflicting info.
+*
+* @param {String} pk - public key (id) of peer
+* @param {Object} data - one individual view of that peers data
+*
+*/
 Crawler.prototype.savePeerData = function(pk, data, defaults) {
   var map = this.peersData[pk] !== undefined ? this.peersData[pk] :
                                                this.peersData[pk] = {};
 
   _.forOwn(data, function(v, k) {
-    if (defaults && map[k] !== undefined ) {
+    // Type is specific to each point of view. We don't save it, in case we
+    // accidentally try and use it later (don't laugh ... )
+    if (k === 'type' || (defaults && map[k] !== undefined) ) {
       return;
     }
     map[k] = v;
@@ -123,7 +137,7 @@ Crawler.prototype.savePeerData = function(pk, data, defaults) {
 Crawler.prototype.crawl = function(ipp, hops) {
   var self = this;
   self.logger.log('entering ' + ipp);
-  self.queued[ipp] = request_status.REQUESTING;
+  self.queued[ipp] = REQUEST_STATUS.REQUESTING;
 
   self.crawlOne(ipp, function(err, resp) {
     self.dequeue(ipp);
@@ -132,6 +146,7 @@ Crawler.prototype.crawl = function(ipp, hops) {
       self.logger.error(ipp + ' has err ', err);
       self.errors[ipp] = err.code;
     } else {
+      self.rawResponses[ipp] = _.cloneDeep(resp);
       resp = normalise(resp);
       self.responses[ipp] = resp;
       resp.overlay.active.forEach(function(active) {
@@ -160,36 +175,36 @@ Crawler.prototype.enqueueIfNeeded = function(ipp) {
 
 Crawler.prototype.requestMore = function(hops) {
   var self = this;
-  var ips = Object.keys(self.queued);
+  var ipps = Object.keys(self.queued);
 
-  ips.forEach(function(queuedIp) {
+  ipps.forEach(function(queuedIpp) {
     if (self.currentRequests < self.maxRequests) {
-      if (self.queued[queuedIp] === request_status.QUEUED) {
-        self.crawl(queuedIp, hops + 1);
+      if (self.queued[queuedIpp] === REQUEST_STATUS.QUEUED) {
+        self.crawl(queuedIpp, hops + 1);
       }
     } else {
       return false;
     }
   });
 
-  return ips.length !== 0;
+  return ipps.length !== 0;
 }
 
-Crawler.prototype.enqueue = function(ip) {
-  abortIfNot(this.queued[ip] === undefined, 'queued already');
-  this.queued[ip] = request_status.QUEUED;
+Crawler.prototype.enqueue = function(ipp) {
+  abortIfNot(this.queued[ipp] === undefined, 'queued already');
+  this.queued[ipp] = REQUEST_STATUS.QUEUED;
 };
 
-Crawler.prototype.dequeue = function(ip) {
-  abortIfNot(this.queued[ip] !== undefined, 'not queued already');
-  delete this.queued[ip];
+Crawler.prototype.dequeue = function(ipp) {
+  abortIfNot(this.queued[ipp] !== undefined, 'not queued already');
+  delete this.queued[ipp];
 };
 
-Crawler.prototype.crawlOne = function(ip, cb) {
+Crawler.prototype.crawlOne = function(ipp, cb) {
   var self;
   this.currentRequests++;
   self = this;
-  self.crawlSingle(ip, function(err, json) {
+  self.crawlSingle(ipp, function(err, json) {
     self.currentRequests--;
     self.emit('request', err, json);
     cb(err, json);

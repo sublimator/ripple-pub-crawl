@@ -7,16 +7,15 @@ from sqlsoup import SQLSoup
 import networkx as nx
 from networkx.readwrite import json_graph
 
-def export_to_dot(G, peers, name):
+def export_to_dot(G, peers, degrees, name):
+  degrees = degrees['nodes']
   for n in G:
-      if peers[n].ip:
-        G.node[n]['label'] = "%s:%s:%s%s" % (G.in_degree(n),
-                                             G.out_degree(n),
-                                             G.degree(n),
-                                            ':u' if not
-                                                 peers[n].reachable else '')
-      else:
-        G.node[n]['label'] = "%s" % (G.degree(n))
+      G.node[n]['label'] = "%s:%s:%s:%s%s" % (degrees[n]['i'],
+                                           degrees[n]['o'],
+                                           degrees[n]['u'],
+                                           G.degree(n),
+                                          ':u' if not
+                                               peers[n].reachable else '')
 
   nx.write_dot(G, name)
 
@@ -33,6 +32,25 @@ def export_to_dot(G, peers, name):
 
 def degree_avg(d):
   return sum(d.values()) / len(d)
+
+
+def find_degrees(G):
+  from collections import defaultdict
+  d = defaultdict(lambda: {'i': 0, 'o': 0, 'u': 0})
+  for (from_, to)  in G.edges():
+    e = G.edge[from_][to]
+    if e['directed']:
+      d[from_]['o'] += 1
+      d[to]['i'] += 1
+    else:
+      d[from_]['u'] += 1
+      d[to]['u'] += 1
+
+  ret = {'nodes': d}
+  ret['in_degree_avg'] = sum([r['i'] for r in d.values()]) / len(d)
+  ret['out_degree_avg'] = sum([r['o'] for r in d.values()]) / len(d)
+  ret['unknown_degree_avg'] = sum([r['u'] for r in d.values()]) / len(d)
+  return ret
 
 def main(url, crawl_id):
   G = nx.DiGraph()
@@ -53,9 +71,11 @@ def main(url, crawl_id):
                              'orange'))
   for e in edges:
     G.add_edge(getattr(e, 'from'), e.to,
+               directed = e.directed,
                color = ('black' if e.directed else 'red'))
 
-  export_to_dot(G, peers, 'crawl-%d.dot' % crawl_id)
+  degrees = find_degrees(G)
+  export_to_dot(G, peers, degrees, 'crawl-%d.dot' % crawl_id)
 
   # TODO: find in degree, out degree, unknown degree for each node
 
@@ -64,8 +84,9 @@ def main(url, crawl_id):
   print('vertices', len(G))
   print('edges', G.size())
   print('average degree', degree_avg(G.degree()))
-  print('average in degree', degree_avg(G.in_degree()))
-  print('average out degree', degree_avg(G.out_degree()))
+  print('average in degree', degrees['in_degree_avg'])
+  print('average out degree', degrees['out_degree_avg'])
+  print('average unknown degree', degrees['unknown_degree_avg'])
 
   G = nx.Graph(G)
   print('graph edges (as undirected graph)', G.size())

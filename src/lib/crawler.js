@@ -6,7 +6,8 @@ var _ = require('lodash');
 var util = require('util');
 var request = require('request');
 var EventEmitter = require('events').EventEmitter;
-var RL = require('ripple-lib');
+var ripple = require('ripple-lib');
+var sjcl = ripple.sjcl;
 
 /* --------------------------------- CONFIG --------------------------------- */
 
@@ -37,17 +38,20 @@ function abortIfNot(expression, message) {
 function withDefaultPort(domainOrIp) {
   return domainOrIp.indexOf(':') !== -1 ? domainOrIp :
                                           domainOrIp + ':51235';
-
 }
 
 function crawlUrl(domainOrIp) {
   return 'https://' + withDefaultPort(domainOrIp) + '/crawl';
 }
 
-function normalizePubKey(base64) {
-  var bits = RL.sjcl.codec.base64.toBits(base64);
-  var bytes = RL.sjcl.codec.bytes.fromBits(bits);
-  return RL.Base.encode_check(RL.Base.VER_NODE_PUBLIC, bytes);
+function normalizePubKey(pubKeyStr) {
+  if (pubKeyStr.length > 50 && pubKeyStr[0] == 'n') {
+    return pubKeyStr;
+  }
+
+  var bits = sjcl.codec.base64.toBits(pubKeyStr);
+  var bytes = sjcl.codec.bytes.fromBits(bits);
+  return ripple.Base.encode_check(ripple.Base.VER_NODE_PUBLIC, bytes);
 }
 
 /**
@@ -91,7 +95,7 @@ function Crawler(maxRequests, logger) {
   this.queued = {};
   this.errors = {};
   this.logger = logger || console;
-  this.byPub = {};
+  this.peersData = {};
 }
 
 util.inherits(Crawler, EventEmitter);
@@ -100,8 +104,9 @@ Crawler.prototype.enter = function(ip) {
   this.crawl(withDefaultPort(ip), 0);
 };
 
-Crawler.prototype.saveData = function(pk, data, defaults) {
-  var map = this.byPub[pk] !== undefined ? this.byPub[pk] : this.byPub[pk] = {};
+Crawler.prototype.savePeerData = function(pk, data, defaults) {
+  var map = this.peersData[pk] !== undefined ? this.peersData[pk] :
+                                               this.peersData[pk] = {};
 
   _.forOwn(data, function(v, k) {
     if (defaults && map[k] !== undefined ) {
@@ -115,7 +120,7 @@ Crawler.prototype.saveData = function(pk, data, defaults) {
 };
 
 /**
-* @param {String} ipp - (including port) to crawl
+* @param {String} ipp - ip and port to crawl
 * @param {Number} hops - from initial entryPoint
 */
 Crawler.prototype.crawl = function(ipp, hops) {
@@ -132,16 +137,16 @@ Crawler.prototype.crawl = function(ipp, hops) {
     } else {
       resp = normalise(resp);
       self.responses[ipp] = resp;
-      resp.overlay.active.forEach(function(entry) {
-        self.saveData(entry.public_key, entry, true);
-        self.saveData(entry.public_key, {hops: hops}, true);
-        self.enqueueIfNeeded(entry.ip_and_port);
+      resp.overlay.active.forEach(function(active) {
+        self.savePeerData(active.public_key, active, true);
+        self.savePeerData(active.public_key, {hops: hops}, true);
+        self.enqueueIfNeeded(active.ip_and_port);
       });
     }
 
     if (!self.requestMore(hops)) {
       self.emit('done', {responses: self.responses,
-                         byPub: self.byPub});
+                         peersData: self.peersData});
     }
   });
 };

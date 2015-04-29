@@ -37,18 +37,17 @@ describe('TestCrawler', function() {
   }
   eachActive(function(a) {
     if (a.public_key) {
-      a.public_key = normalizePubKey(a.public_key);
       allpubs[a.public_key] = true;
     };
   });
   eachActive(function(a) {
-    if (a.public_key && a.ip) {
-      pub2ip[a.public_key] = a.ip;
+    if (a.public_key && a.ip_and_port) {
+      pub2ip[a.public_key] = a.ip_and_port;
     };
   });
   eachActive(function(a) {
-    if (a.public_key && !a.ip) {
-      a.ip = pub2ip[a.public_key];
+    if (a.public_key && !a.ip_and_port) {
+      a.ip_and_port = pub2ip[a.public_key];
     };
   });
 
@@ -61,14 +60,14 @@ describe('TestCrawler', function() {
 
   var ips = Object.keys(responses);
   ips.slice(0, 10).forEach(function(ip) {
-    it('it works for ip: ' + ip, function(done) {
+    it('it works for ip: `' + ip + '`', function(done) {
       crawler.once('done', function() {
         function add(a, b) { return a + b; }
         // [peers_at_hop_n, peers_at_hop_n+1, ...]
-        var peers_at_n_hops = _.map(_.groupBy(crawler.byPub, 'hops'), 'length');
-        var peers = peers_at_n_hops.reduce(add);
-        assert(peers == 131);
+        var at_n_hops = _.map(_.groupBy(crawler.peersData, 'hops'), 'length');
+        var peers = at_n_hops.reduce(add);
         assert(peers == expectedPeers);
+        assert(peers == 133);
         done();
       });
       crawler.enter(ip);

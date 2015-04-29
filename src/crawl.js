@@ -30,7 +30,7 @@ function prettyJSON(o) {
   return JSON.stringify(o, undefined, 2);
 }
 
-var saveDB = exports.saveDB = function saveDB(crawler, entryIp, dbUrl, onDone) {
+var saveDB = exports.saveDB = function saveDB(rawCrawl, entryIp, dbUrl, onDone) {
   var sql = new Sequelize(dbUrl, {logging: config.LOG_SQL});
   var models = modelsFactory(sql, Sequelize);
   // our context var
@@ -45,10 +45,10 @@ var saveDB = exports.saveDB = function saveDB(crawler, entryIp, dbUrl, onDone) {
   })
   .then(function(crawl) {
     $.crawl = crawl;
-    var peers = _.map(crawler.byPub, function(data, public_key) {
+    var peers = _.map(rawCrawl.peersData, function(data, public_key) {
       var geo = data.ip ? geoip.lookup(data.ip) : {};
       var reachable = (data.ip !== undefined &&
-                       crawler.responses[data.ip_and_port] !== undefined);
+                       rawCrawl.responses[data.ip_and_port] !== undefined);
       return {
          crawl_id: crawl.id,
          city: geo.city,
@@ -75,10 +75,10 @@ var saveDB = exports.saveDB = function saveDB(crawler, entryIp, dbUrl, onDone) {
       };
       // We can some times see sockets going from `from`, to `to` more than
       // once. We need to dedupe these.
-      crawler.responses[peerModel.ip_and_port].overlay.active
-                                                .forEach(function(active) {
+      rawCrawl.responses[peerModel.ip_and_port].overlay.active
+                                            .forEach(function(active) {
         if (indexed[active.public_key]) {
-          var data = crawler.byPub[active.public_key];
+          var data = rawCrawl.peersData[active.public_key];
           if (data.type === 'peer') {
             // TODO:  We'd just be guessing the direction of the edges
             return;
@@ -131,15 +131,16 @@ function main(entryIp, dbUrl) {
       process.stdout.write('.');
     })
     .once('done', function() { console.log(); })
-    .once('done', function(data) {
+    .once('done', function(rawCrawl) {
       // Save results to the db
-      saveDB(data, entryIp, dbUrl, function(err, crawl, peers, edges) {
+      saveDB(rawCrawl, entryIp, dbUrl, function(err, crawl_id, peers, edges) {
         if (err) {
           console.error(err);
           process.exit(1);
         } else {
-          console.log('Queried: crawlId/num_peers/num_edges',
-                                crawl, peers, edges);
+          fs.writeFileSync('crawl.json', prettyJSON(rawCrawl.responses));
+          console.log('Queried: crawl_id/num_peers/num_edges',
+                                crawl_id, peers, edges);
           process.exit(0);
         }
       });

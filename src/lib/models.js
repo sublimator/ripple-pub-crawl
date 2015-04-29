@@ -5,14 +5,14 @@ var Promise = Sequelize.Promise; // bluebird++
 var create = module.exports = function(sql, Sequelize) {
   var Crawl = sql.define('crawl', {
     entry_ip: {type: Sequelize.STRING, validate: {isIPv4: true}},
-    id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true }
+    id: { type: Sequelize.BIGINT, autoIncrement: true, primaryKey: true }
   }, {underscored: true});
 
   var Peer = sql.define('peer', {
-    id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
+    id: { type: Sequelize.BIGINT, autoIncrement: true, primaryKey: true },
     // We explicitly define this here, so we can enforce the constraint of peers
     // being unique for their given public keys, per crawl.
-    crawl_id: { type: Sequelize.INTEGER, unique: 'pubCrawl'},
+    crawl_id: { type: Sequelize.BIGINT, unique: 'pubCrawl'},
     public_key: {type: Sequelize.STRING, allowNull: false, unique: 'pubCrawl'},
     hops_from_entry: {type: Sequelize.INTEGER},
     reachable: {type: Sequelize.BOOLEAN},
@@ -39,7 +39,9 @@ var create = module.exports = function(sql, Sequelize) {
   });
 
   var Edge = sql.define('edge', {
-    directed: {type: Sequelize.BOOLEAN} },
+    directed: {type: Sequelize.BOOLEAN},
+    id: { type: Sequelize.BIGINT, autoIncrement: true, primaryKey: true }
+    },
     { timestamps: false,
       underscored: true }
   );

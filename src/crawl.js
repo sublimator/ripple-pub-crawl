@@ -71,6 +71,7 @@ var saveDB = exports.saveDB = function saveDB(rawCrawl, entryIp, dbUrl, onDone) 
 
     peers.forEach(function(peerModel) {
       if (!peerModel.reachable) {
+        // We don't have any data from them, so ... moving on.
         return;
       };
       // We can some times see sockets going from `from`, to `to` more than
@@ -78,16 +79,14 @@ var saveDB = exports.saveDB = function saveDB(rawCrawl, entryIp, dbUrl, onDone) 
       rawCrawl.responses[peerModel.ip_and_port].overlay.active
                                             .forEach(function(active) {
         if (indexed[active.public_key]) {
-          var data = rawCrawl.peersData[active.public_key];
-          var edge_type = data.type;
+          var edge_type = active.type;
           var directed = true;
 
           if (edge_type === 'peer' || edge_type === undefined) {
-            // We'll just have to say `out` for the moment We could add
-            // something on the Edge model that indicates the direction is not
-            // really known, and color them accordingly when drawing the graph.
-            edge_type = 'out';
-            directed = false;
+            // We may know the link from another direction, so sit tight. We
+            // need to go through all the peers, and all their `actives` first
+            // until below we can check if the edge is already there.
+            return;
           };
 
           var other = indexed[active.public_key];
@@ -105,6 +104,37 @@ var saveDB = exports.saveDB = function saveDB(rawCrawl, entryIp, dbUrl, onDone) 
         }
       });
     });
+
+    //
+    peers.forEach(function(peerModel) {
+      if (!peerModel.reachable) {
+        return;
+      };
+
+      rawCrawl.responses[peerModel.ip_and_port].overlay.active
+                                            .forEach(function(active) {
+        if (indexed[active.public_key]) {
+          var other = indexed[active.public_key];
+          var edge_type = active.type;
+          if (edge_type === 'peer' || edge_type === undefined) {
+            // Create an undirected edge.
+            // from and to are meaningless when directed == false
+
+            // We may already have the link
+            var in_key = other.id +':' + peerModel.id;
+            var out_key = peerModel.id +':' + other.id;
+            if (!edgeMap[in_key] && !edgeMap[out_key]) {
+              var edge = {from: peerModel.id,
+                          directed: false,
+                          to: other.id,
+                          crawl_id: $.crawl.id};
+              edgeMap[out_key] = edge;
+            };
+          };
+        }
+      });
+    });
+
     return models.Edge.bulkCreate(_.values(edgeMap), $.tx);
 
   }).then(function(edges) {

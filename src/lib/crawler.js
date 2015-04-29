@@ -110,10 +110,7 @@ Crawler.prototype.savePeerData = function(pk, data, defaults) {
 
   _.forOwn(data, function(v, k) {
     if (defaults && map[k] !== undefined ) {
-      // We want better data than this
-      if (!(k === 'type' && map[k] === 'peer')) {
-        return;
-      }
+      return;
     }
     map[k] = v;
   });

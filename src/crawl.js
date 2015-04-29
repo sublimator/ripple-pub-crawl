@@ -79,18 +79,27 @@ var saveDB = exports.saveDB = function saveDB(rawCrawl, entryIp, dbUrl, onDone) 
                                             .forEach(function(active) {
         if (indexed[active.public_key]) {
           var data = rawCrawl.peersData[active.public_key];
-          if (data.type === 'peer') {
-            // TODO:  We'd just be guessing the direction of the edges
-            return;
+          var edge_type = data.type;
+          var directed = true;
+
+          if (edge_type === 'peer' || edge_type === undefined) {
+            // We'll just have to say `out` for the moment We could add
+            // something on the Edge model that indicates the direction is not
+            // really known, and color them accordingly when drawing the graph.
+            edge_type = 'out';
+            directed = false;
           };
 
           var other = indexed[active.public_key];
-          var from_ = data.type === 'in' ? other : peerModel;
-          var to_ = data.type === 'out' ? other : peerModel;
+          var from_ = edge_type === 'in' ? other : peerModel;
+          var to_ = edge_type === 'out' ? other : peerModel;
 
           var id = from_.id + ':' + to_.id;
           if (!edgeMap[id]) {
-            var edge = {from: from_.id, to: to_.id, crawl_id: $.crawl.id};
+            var edge = {from: from_.id,
+                        directed: directed,
+                        to: to_.id,
+                        crawl_id: $.crawl.id};
             edgeMap[id] = edge;
           }
         }

@@ -38,7 +38,11 @@ var create = module.exports = function(sql, Sequelize) {
 
   });
 
-  var Edge = sql.define('edge', {}, {timestamps: false, underscored: true});
+  var Edge = sql.define('edge', {
+    directed: {type: Sequelize.BOOLEAN} },
+    { timestamps: false,
+      underscored: true }
+  );
 
   var Summary = sql.define('summary', {
     count: {type: Sequelize.INTEGER},
